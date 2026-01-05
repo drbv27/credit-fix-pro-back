@@ -1,0 +1,26 @@
+[
+  {
+    "id": "1767626671483",
+    "email": "temp_1767626671272@temp.com",
+    "password": "$2b$10$NXlQZdROB//I26u8MRxOce8X6H97k9r2Woj7S66j.l5at2aobTU4u",
+    "smartcreditEmail": "Iceinmia2@gmail.com",
+    "smartcreditPassword": " Josearango123$",
+    "createdAt": "2026-01-05T15:24:31.483Z"
+  },
+  {
+    "id": "1767626894362",
+    "email": "temp_1767626894173@temp.com",
+    "password": "$2b$10$FilmSYDuZVRIQfKKLU.j4eHlfcmGSjcB87Pr4dT0d4LAIZF6FXat.",
+    "smartcreditEmail": "Iceinmia2@gmail.com",
+    "smartcreditPassword": "Josearango123$",
+    "createdAt": "2026-01-05T15:28:14.362Z"
+  },
+  {
+    "id": "1767641998628",
+    "email": "temp_1767641998450@temp.com",
+    "password": "$2b$10$r2K2Ci6hWc2dvOOL.6JuquOdZx907/H0SIDNoQoplSXyg5mFlOiQG",
+    "smartcreditEmail": "",
+    "smartcreditPassword": "",
+    "createdAt": "2026-01-05T19:39:58.628Z"
+  }
+]
