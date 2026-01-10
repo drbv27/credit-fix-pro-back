@@ -1,14 +1,12 @@
 /**
- * Authentication Middleware
- * Verifica el token JWT en las requests
+ * Authentication Middleware with MongoDB
+ * Verifies JWT token in requests
  */
 
-const jwt = require('jsonwebtoken');
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const authService = require('../services/auth-service');
 
 /**
- * Middleware para verificar JWT token
+ * Middleware to verify JWT token
  */
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
@@ -16,38 +14,25 @@ function authenticateToken(req, res, next) {
 
   if (!token) {
     return res.status(401).json({
-      error: 'No autorizado',
-      message: 'Token no proporcionado'
+      error: 'Unauthorized',
+      message: 'No token provided'
     });
   }
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({
-        error: 'Token inválido',
-        message: 'El token proporcionado no es válido o ha expirado'
-      });
-    }
-
-    req.user = user;
+  try {
+    const decoded = authService.verifyToken(token);
+    req.user = {
+      id: decoded.userId,
+    };
     next();
-  });
-}
-
-/**
- * Genera un token JWT para un usuario
- */
-function generateToken(user) {
-  const payload = {
-    id: user.id,
-    email: user.email,
-  };
-
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
+  } catch (error) {
+    return res.status(403).json({
+      error: 'Invalid token',
+      message: error.message
+    });
+  }
 }
 
 module.exports = {
   authenticateToken,
-  generateToken,
-  JWT_SECRET,
 };

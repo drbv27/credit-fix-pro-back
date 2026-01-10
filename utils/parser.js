@@ -9,12 +9,21 @@
  *   "+34 pts" -> 34
  *   "-168 pts" -> -168
  *   "$652.05" -> 652.05
+ *   34 -> 34 (FASE 5: Accept numbers directly)
  */
 function extractNumber(text) {
-  if (!text) return null;
+  if (!text && text !== 0) return null;
+
+  // If already a number, return it (FASE 5)
+  if (typeof text === 'number') {
+    return isNaN(text) ? null : text;
+  }
+
+  // Convert to string if not already
+  const str = String(text);
 
   // Remove everything except numbers, dots, minus, and plus
-  const cleaned = text.replace(/[^\d.\-+]/g, '');
+  const cleaned = str.replace(/[^\d.\-+]/g, '');
 
   // Parse as float
   const num = parseFloat(cleaned);
@@ -179,9 +188,10 @@ function parse3BPersonalInfo(rawData) {
  */
 function parseSummary(rawData) {
   return {
-    total_accounts: extractNumber(rawData.totalAccounts),
-    open_accounts: extractNumber(rawData.openAccounts),
-    closed_accounts: extractNumber(rawData.closedAccounts),
+    // Support both camelCase and snake_case (FASE 5)
+    total_accounts: extractNumber(rawData.total_accounts || rawData.totalAccounts),
+    open_accounts: extractNumber(rawData.open_accounts || rawData.openAccounts),
+    closed_accounts: extractNumber(rawData.closed_accounts || rawData.closedAccounts),
     delinquent: extractNumber(rawData.delinquent),
     derogatory: extractNumber(rawData.derogatory),
     balances: cleanText(rawData.balances), // Keep as string with $ formatting

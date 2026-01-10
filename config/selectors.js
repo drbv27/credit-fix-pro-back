@@ -43,9 +43,11 @@ module.exports = {
   // ========================================
   // NAVIGATION TO 3B REPORT
   // ========================================
-  REPORTS_DROPDOWN: 'a.dropdown-toggle[data-toggle="dropdown"]',
-  REPORT_3B_LINK: 'a[href="/member/credit-report/smart-3b/"]',
-  CLASSIC_VIEW_BUTTON: 'button.btn-sm.btn-secondary',
+  // NOTA: Estos selectores son base genéricos. La lógica de navegación en scraper.js
+  // usa múltiples estrategias de búsqueda (por texto, href, clases) para mayor robustez.
+  REPORTS_DROPDOWN: 'a[href]', // Buscar cualquier link, filtrar por texto "Reports" en scraper.js
+  REPORT_3B_LINK: 'a[href*="smart-3b"], a[href*="3b"], a[href*="credit-report"]', // Múltiples variantes posibles
+  CLASSIC_VIEW_BUTTON: 'button', // Buscar cualquier botón, filtrar por texto "Classic" en scraper.js
 
   // ========================================
   // 3B REPORT - CREDIT SCORES

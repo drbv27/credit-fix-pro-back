@@ -26,6 +26,10 @@ const {
   buildFullCreditReport,
 } = require('./utils/parser');
 
+// FASE 2: Importar nuevos servicios de extracción
+const extractionService = require('./services/extraction-service');
+const reportBuilder = require('./services/report-builder');
+
 // Configuración
 const SMARTCREDIT_URL = 'https://www.smartcredit.com/?PID=56032';
 const LOGIN_URL = 'https://www.smartcredit.com/login/';
@@ -115,21 +119,41 @@ async function scrapeCreditScore() {
 
     // 8.1: Click en dropdown "Reports"
     console.log('Buscando dropdown "Reports"...');
-    await page.waitForSelector(selectors.REPORTS_DROPDOWN, { timeout: 10000 });
 
-    // Hacer click directamente usando page.evaluate
-    const reportsDropdownFound = await page.evaluate((selector) => {
-      const dropdowns = Array.from(document.querySelectorAll(selector));
-      const reportsDropdown = dropdowns.find((el) => el.textContent.includes('Reports'));
-      if (reportsDropdown) {
-        reportsDropdown.click();
+    // Estrategia multi-capa para encontrar el dropdown "Reports"
+    const reportsDropdownFound = await page.evaluate(() => {
+      // Estrategia 1: Buscar por texto exacto "Reports" en links con dropdown
+      let reportsLink = Array.from(document.querySelectorAll('a')).find(
+        el => el.textContent.trim() === 'Reports' &&
+        (el.classList.contains('dropdown-toggle') || el.hasAttribute('data-toggle'))
+      );
+
+      // Estrategia 2: Buscar cualquier link que contenga "Reports"
+      if (!reportsLink) {
+        reportsLink = Array.from(document.querySelectorAll('a')).find(
+          el => el.textContent.includes('Reports')
+        );
+      }
+
+      // Estrategia 3: Buscar en elementos nav o menu
+      if (!reportsLink) {
+        const navElements = document.querySelectorAll('nav a, .nav a, .navbar a, [role="navigation"] a');
+        reportsLink = Array.from(navElements).find(
+          el => el.textContent.includes('Reports')
+        );
+      }
+
+      if (reportsLink) {
+        console.log('Dropdown "Reports" encontrado:', reportsLink.outerHTML.substring(0, 100));
+        reportsLink.click();
         return true;
       }
+
       return false;
-    }, selectors.REPORTS_DROPDOWN);
+    });
 
     if (!reportsDropdownFound) {
-      throw new Error('No se encontró el dropdown "Reports"');
+      throw new Error('No se encontró el dropdown "Reports". Verifique que la página del dashboard haya cargado correctamente.');
     }
 
     console.log('✓ Click en dropdown "Reports"');
@@ -140,32 +164,56 @@ async function scrapeCreditScore() {
 
     // Buscar el link con múltiples estrategias
     const report3BLinkFound = await page.evaluate(() => {
-      // Estrategia 1: Buscar por href exacto
-      let link = document.querySelector('a[href="/member/credit-report/smart-3b/"]');
+      // Estrategia 1: Buscar por href que contenga "smart-3b"
+      let link = Array.from(document.querySelectorAll('a')).find(a => a.href.includes('smart-3b'));
 
-      // Estrategia 2: Buscar por href que contenga "smart-3b"
+      // Estrategia 2: Buscar por href que contenga "3b" y "credit-report"
       if (!link) {
-        const allLinks = Array.from(document.querySelectorAll('a'));
-        link = allLinks.find(a => a.href.includes('smart-3b'));
+        link = Array.from(document.querySelectorAll('a')).find(
+          a => a.href.includes('3b') && a.href.includes('credit-report')
+        );
       }
 
-      // Estrategia 3: Buscar por texto que contenga "3B Report"
+      // Estrategia 3: Buscar por texto que contenga "3B Report" o "3-Bureau"
       if (!link) {
-        const allLinks = Array.from(document.querySelectorAll('a'));
-        link = allLinks.find(a => a.textContent.includes('3B Report'));
+        link = Array.from(document.querySelectorAll('a')).find(
+          a => a.textContent.includes('3B Report') ||
+               a.textContent.includes('3-Bureau') ||
+               a.textContent.includes('3B Credit')
+        );
+      }
+
+      // Estrategia 4: Buscar en dropdowns desplegados (elementos visibles)
+      if (!link) {
+        const visibleLinks = Array.from(document.querySelectorAll('a')).filter(
+          a => a.offsetParent !== null
+        );
+        link = visibleLinks.find(
+          a => a.textContent.toLowerCase().includes('3b') ||
+               a.textContent.toLowerCase().includes('bureau')
+        );
       }
 
       if (link) {
-        console.log('Link encontrado:', link.href, link.textContent);
+        console.log('Link 3B Report encontrado:', link.href, '|', link.textContent.trim());
         link.click();
         return true;
       }
+
+      // Debug: Mostrar todos los links visibles del dropdown
+      const dropdownLinks = Array.from(document.querySelectorAll('a')).filter(
+        a => a.offsetParent !== null && a.getBoundingClientRect().height > 0
+      );
+      console.log('Links visibles en dropdown:', dropdownLinks.map(a => ({
+        text: a.textContent.trim(),
+        href: a.href
+      })));
 
       return false;
     });
 
     if (!report3BLinkFound) {
-      throw new Error('No se encontró el link "3B Report & Scores"');
+      throw new Error('No se encontró el link "3B Report & Scores". Verifique que el dropdown "Reports" se haya desplegado correctamente.');
     }
 
     console.log('✓ Click en "3B Report & Scores"');
@@ -181,43 +229,51 @@ async function scrapeCreditScore() {
     // 8.4: Click en "Switch to Classic View"
     console.log('Buscando botón "Switch to Classic View"...');
 
-    // Primero hacer debug de los botones disponibles
-    const buttonsDebug = await page.evaluate((selector) => {
-      const buttons = Array.from(document.querySelectorAll(selector));
-      return buttons.map((btn) => ({
-        text: btn.textContent.trim(),
-        classes: btn.className,
-        visible: btn.offsetParent !== null,
-      }));
-    }, selectors.CLASSIC_VIEW_BUTTON);
+    // Buscar el botón con múltiples estrategias
+    const classicViewButtonInfo = await page.evaluate(() => {
+      // Estrategia 1: Buscar cualquier botón que contenga "Classic"
+      let classicButton = Array.from(document.querySelectorAll('button')).find(
+        btn => btn.textContent.includes('Classic')
+      );
 
-    console.log('Botones btn-sm.btn-secondary encontrados:', JSON.stringify(buttonsDebug, null, 2));
-
-    // Ahora buscar el botón con múltiples estrategias
-    const classicViewButtonInfo = await page.evaluate((selector) => {
-      // Estrategia 1: Buscar por clase específica y texto
-      let buttons = Array.from(document.querySelectorAll(selector));
-      let classicButton = buttons.find((btn) => btn.textContent.includes('Switch to Classic View'));
-
-      // Estrategia 2: Buscar cualquier botón que contenga "Classic"
+      // Estrategia 2: Buscar por texto que contenga "Switch"
       if (!classicButton) {
-        buttons = Array.from(document.querySelectorAll('button'));
-        classicButton = buttons.find((btn) => btn.textContent.includes('Classic'));
+        classicButton = Array.from(document.querySelectorAll('button')).find(
+          btn => btn.textContent.includes('Switch')
+        );
       }
 
-      // Estrategia 3: Buscar por cualquier botón que tenga "Switch"
+      // Estrategia 3: Buscar en links (a veces los "botones" son links estilizados)
       if (!classicButton) {
-        buttons = Array.from(document.querySelectorAll('button'));
-        classicButton = buttons.find((btn) => btn.textContent.includes('Switch'));
+        classicButton = Array.from(document.querySelectorAll('a')).find(
+          link => link.textContent.includes('Classic') || link.textContent.includes('Switch')
+        );
+      }
+
+      // Estrategia 4: Buscar por atributos que sugieran cambio de vista
+      if (!classicButton) {
+        classicButton = Array.from(document.querySelectorAll('button, a')).find(
+          el => el.textContent.toLowerCase().includes('view') &&
+                (el.textContent.toLowerCase().includes('classic') ||
+                 el.textContent.toLowerCase().includes('switch'))
+        );
       }
 
       if (classicButton) {
+        console.log('Botón Classic View encontrado:', classicButton.textContent.trim());
         classicButton.click();
         return { found: true, text: classicButton.textContent.trim() };
       }
 
+      // Debug: Mostrar botones disponibles
+      const allButtons = Array.from(document.querySelectorAll('button')).map(btn => ({
+        text: btn.textContent.trim().substring(0, 50),
+        visible: btn.offsetParent !== null
+      })).filter(btn => btn.visible);
+      console.log('Botones visibles en la página:', allButtons);
+
       return { found: false, text: null };
-    }, selectors.CLASSIC_VIEW_BUTTON);
+    });
 
     if (!classicViewButtonInfo.found) {
       console.log('⚠ Botón "Switch to Classic View" no encontrado - asumiendo ya estamos en Classic View');
@@ -270,176 +326,70 @@ async function scrapeCreditScore() {
       console.log('✓ Se encontraron referencias a los 3 burós en la página');
     }
 
-    // Pequeña espera para asegurar que todo el contenido dinámico cargue
-    await new Promise((r) => setTimeout(r, 3000));
+    // CRÍTICO: Esperar a que se rendericen TODAS las cuentas del Account History
+    // Las cuentas se cargan dinámicamente via JavaScript
+    console.log('Esperando a que se rendericen todas las cuentas del Account History...');
+
+    try {
+      await page.waitForFunction(
+        () => {
+          const accountContainers = document.querySelectorAll('div.mb-5');
+          console.log(`  → Cuentas renderizadas actualmente: ${accountContainers.length}`);
+          // Esperar hasta que haya al menos 20 cuentas (el summary indica 32-34 total)
+          // o hasta 30 segundos como máximo
+          return accountContainers.length >= 20;
+        },
+        { timeout: 30000, polling: 1000 }
+      );
+
+      const accountCount = await page.evaluate(() => document.querySelectorAll('div.mb-5').length);
+      console.log(`✓ Detectadas ${accountCount} cuentas renderizadas en el DOM`);
+    } catch (err) {
+      // Si timeout, continuar con las cuentas que hayamos logrado renderizar
+      const accountCount = await page.evaluate(() => document.querySelectorAll('div.mb-5').length);
+      console.log(`⚠ Timeout esperando cuentas. Continuando con ${accountCount} cuentas renderizadas`);
+    }
 
     // Debug: Guardar HTML de la página para análisis (solo en desarrollo)
     const pageHTML = await page.content();
-    const htmlPath = path.join(__dirname, 'output', 'page_3b_debug.html');
-    fs.writeFileSync(htmlPath, pageHTML, 'utf-8');
-    console.log(`Debug: HTML guardado en ${htmlPath}`);
-
-    // PASO 10: Extraer datos del 3B Report
-    console.log('--- 10. Extrayendo datos del 3B Report ---');
-
-    const raw3BData = await page.evaluate((sel) => {
-      const data = {};
-
-      // Función helper para obtener texto de un selector
-      const getText = (selector) => {
-        const el = document.querySelector(selector);
-        return el ? el.textContent.trim() : null;
-      };
-
-      // ========================================
-      // CREDIT SCORES 3B
-      // ========================================
-      data.scores = {
-        transunion: getText(sel.TRANSUNION_SCORE_3B),
-        experian: getText(sel.EXPERIAN_SCORE_3B),
-        equifax: getText(sel.EQUIFAX_SCORE_3B),
-      };
-
-      // ========================================
-      // PERSONAL INFORMATION - Extracción programática
-      // ========================================
-      const extractGridData = (sectionIndex, gridIndex, bureauIndex) => {
-        const sections = document.querySelectorAll('section.mt-5');
-        if (sections.length <= sectionIndex) return null;
-
-        const grids = sections[sectionIndex].querySelectorAll('div.d-grid.grid-cols-4');
-        if (grids.length <= gridIndex) return null;
-
-        const grid = grids[gridIndex];
-        const bureauColumns = grid.querySelectorAll('div.d-contents');
-
-        // bureauIndex: 1=TransUnion, 2=Experian, 3=Equifax (índice 0 son las labels)
-        if (bureauColumns.length <= bureauIndex) return null;
-
-        const cells = bureauColumns[bureauIndex].querySelectorAll('p.grid-cell');
-        return Array.from(cells)
-          .slice(1) // Skip header row
-          .map((cell) => cell.textContent.trim());
-      };
-
-      // Personal Information está en la primera sección (index 0), primer grid (index 0)
-      const tuPersonal = extractGridData(0, 0, 1); // TransUnion
-      const expPersonal = extractGridData(0, 0, 2); // Experian
-      const eqfPersonal = extractGridData(0, 0, 3); // Equifax
-
-      data.personalInfo = {
-        transunion: {
-          reportDate: tuPersonal?.[0] || null,
-          name: tuPersonal?.[1] || null,
-          dob: tuPersonal?.[2] || null,
-          currentAddress: tuPersonal?.[3] || null,
-          previousAddress: tuPersonal?.[4] || null,
-          employer: tuPersonal?.[5] || null,
-        },
-        experian: {
-          reportDate: expPersonal?.[0] || null,
-          name: expPersonal?.[1] || null,
-          dob: expPersonal?.[2] || null,
-          currentAddress: expPersonal?.[3] || null,
-          previousAddress: expPersonal?.[4] || null,
-          employer: expPersonal?.[5] || null,
-        },
-        equifax: {
-          reportDate: eqfPersonal?.[0] || null,
-          name: eqfPersonal?.[1] || null,
-          dob: eqfPersonal?.[2] || null,
-          currentAddress: eqfPersonal?.[3] || null,
-          previousAddress: eqfPersonal?.[4] || null,
-          employer: eqfPersonal?.[5] || null,
-        },
-      };
-
-      // ========================================
-      // SUMMARY - Extracción programática
-      // ========================================
-      // Summary está en la segunda sección (index 1), primer grid (index 0)
-      const tuSummary = extractGridData(1, 0, 1); // TransUnion
-      const expSummary = extractGridData(1, 0, 2); // Experian
-      const eqfSummary = extractGridData(1, 0, 3); // Equifax
-
-      data.summary = {
-        transunion: {
-          totalAccounts: tuSummary?.[0] || null,
-          openAccounts: tuSummary?.[1] || null,
-          closedAccounts: tuSummary?.[2] || null,
-          delinquent: tuSummary?.[3] || null,
-          derogatory: tuSummary?.[4] || null,
-          balances: tuSummary?.[5] || null,
-          payments: tuSummary?.[6] || null,
-          publicRecords: tuSummary?.[7] || null,
-          inquiries: tuSummary?.[8] || null,
-        },
-        experian: {
-          totalAccounts: expSummary?.[0] || null,
-          openAccounts: expSummary?.[1] || null,
-          closedAccounts: expSummary?.[2] || null,
-          delinquent: expSummary?.[3] || null,
-          derogatory: expSummary?.[4] || null,
-          balances: expSummary?.[5] || null,
-          payments: expSummary?.[6] || null,
-          publicRecords: expSummary?.[7] || null,
-          inquiries: expSummary?.[8] || null,
-        },
-        equifax: {
-          totalAccounts: eqfSummary?.[0] || null,
-          openAccounts: eqfSummary?.[1] || null,
-          closedAccounts: eqfSummary?.[2] || null,
-          delinquent: eqfSummary?.[3] || null,
-          derogatory: eqfSummary?.[4] || null,
-          balances: eqfSummary?.[5] || null,
-          payments: eqfSummary?.[6] || null,
-          publicRecords: eqfSummary?.[7] || null,
-          inquiries: eqfSummary?.[8] || null,
-        },
-      };
-
-      return data;
-    }, selectors);
-
-    console.log('Raw 3B data extraído:', JSON.stringify(raw3BData, null, 2));
-    console.log('✓ Datos extraídos del DOM\n');
-
-    // PASO 11: Parsear datos del 3B Report
-    console.log('--- 11. Parseando datos del 3B Report ---');
-
-    // Parsear credit scores
-    const scores3B = parse3BScores(raw3BData.scores);
-    console.log('Credit Scores 3B:', scores3B);
-
-    // Parsear personal information
-    const personalInfo3B = parse3BPersonalInfo(raw3BData.personalInfo);
-    console.log('Personal Information parsed');
-
-    // Parsear summary
-    const summary3B = parse3BSummary(raw3BData.summary);
-    console.log('Summary parsed');
-
-    // Construir objeto final del 3B Report
-    const report3BData = {
-      scores: scores3B,
-      personalInfo: personalInfo3B,
-      summary: summary3B,
-    };
-
-    // Construir reporte completo (sin datos del dashboard por ahora)
-    const creditData = buildFullCreditReport({ credit_score_info: null }, report3BData);
-
-    console.log('✓ Datos parseados correctamente\n');
-
-    // PASO 12: Guardar resultado en JSON
-    console.log('--- 12. Guardando resultado ---');
     const outputDir = path.join(__dirname, 'output');
-    const outputFile = path.join(outputDir, 'credit_report_3b.json');
 
     // Crear directorio si no existe
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
     }
+
+    const htmlPath = path.join(outputDir, 'page_3b_debug.html');
+    fs.writeFileSync(htmlPath, pageHTML, 'utf-8');
+    console.log(`Debug: HTML guardado en ${htmlPath}`);
+
+    // PASO 10: Extraer datos del 3B Report usando extraction-service (FASE 2 + FASE 3 + FASE 4)
+    console.log('--- 10. Extrayendo datos del 3B Report (FASE 2 + FASE 3 + FASE 4) ---');
+
+    // Usar el nuevo extraction service para extraer todas las secciones
+    // FASE 3: Agregando Account History
+    // FASE 4: Agregando Public Records e Inquiries
+    const raw3BData = await extractionService.extractAll3BReport(page, {
+      sections: ['scores', 'personalInfo', 'summary', 'accountHistory', 'publicRecords', 'inquiries'],
+    });
+
+    console.log('✓ Datos extraídos con extraction-service\n');
+
+    // PASO 11: Construir reporte final usando report-builder (FASE 2 + FASE 3)
+    console.log('--- 11. Construyendo reporte final (FASE 2 + FASE 3) ---');
+
+    // Usar el report builder para construir el JSON final
+    const creditData = reportBuilder.buildFullReport(raw3BData, {
+      includeDashboard: false, // No incluir dashboard por ahora
+    });
+
+    console.log('✓ Reporte construido con report-builder\n');
+
+    // PASO 12: Guardar resultado en JSON
+    console.log('--- 12. Guardando resultado ---');
+    const outputFile = path.join(outputDir, 'credit_report_3b.json');
+
+    // El directorio ya fue creado anteriormente
 
     fs.writeFileSync(outputFile, JSON.stringify(creditData, null, 2), 'utf-8');
     console.log(`✓ Datos guardados en: ${outputFile}\n`);

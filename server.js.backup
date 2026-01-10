@@ -26,17 +26,6 @@ const {
   buildFullCreditReport,
 } = require('./utils/parser');
 
-// MongoDB Connection
-const connectDB = require('./config/database');
-
-// Models
-const User = require('./models/User');
-const CreditReport = require('./models/CreditReport');
-
-// Importar servicios de extracción (FASE 6)
-const extractionService = require('./services/extraction-service'); // Ya es una instancia
-const reportBuilder = require('./services/report-builder');
-
 // Importar rutas de autenticación
 const authRoutes = require('./routes/auth');
 const { authenticateToken } = require('./middleware/auth');
@@ -70,30 +59,18 @@ app.post('/api/sync', authenticateToken, async (req, res) => {
     console.log('  Iniciando scraping de SmartCredit');
     console.log('========================================');
 
-    // Get user from MongoDB with SmartCredit credentials
-    const user = await User.findById(req.user.id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: 'User not found',
-        message: 'User not found in database'
-      });
-    }
-
-    // Get SmartCredit credentials from user account
-    const smartcreditEmail = user.smartcreditCredentials?.email;
-    const smartcreditPassword = user.smartcreditCredentials?.password;
+    // Obtener credenciales del cuerpo de la request
+    const { smartcreditEmail, smartcreditPassword } = req.body;
 
     if (!smartcreditEmail || !smartcreditPassword) {
       return res.status(400).json({
         success: false,
-        error: 'SmartCredit credentials not configured',
-        message: 'Please configure your SmartCredit credentials first'
+        error: 'Se requieren credenciales de SmartCredit',
+        message: 'Por favor proporciona smartcreditEmail y smartcreditPassword en el cuerpo de la petición'
       });
     }
 
-    console.log(`✓ User authenticated: ${user.email}`);
+    console.log(`✓ Usuario autenticado: ${req.user.email}`);
 
     // Iniciar navegador en modo headless
     console.log('→ Iniciando navegador (headless mode)...');
@@ -108,7 +85,7 @@ app.post('/api/sync', authenticateToken, async (req, res) => {
 
     // Navegar a página principal
     console.log('→ Navegando a SmartCredit.com...');
-    await page.goto(SMARTCREDIT_URL, { waitUntil: 'networkidle2', timeout: 60000 });
+    await page.goto(SMARTCREDIT_URL, { waitUntil: 'networkidle2', timeout: 30000 });
     console.log('✓ Página cargada');
 
     // Click en botón "Log In"
@@ -117,7 +94,7 @@ app.post('/api/sync', authenticateToken, async (req, res) => {
       await page.waitForSelector(selectors.LOGIN_BUTTON, { timeout: 10000 });
       await page.click(selectors.LOGIN_BUTTON);
       console.log('✓ Click en "Log In"');
-      await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 });
+      await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 });
     } catch (error) {
       console.log('! Asumiendo que ya estamos en /login/');
     }
@@ -137,7 +114,7 @@ app.post('/api/sync', authenticateToken, async (req, res) => {
     // Submit login
     console.log('→ Enviando formulario de login...');
     await page.click(selectors.SUBMIT_BUTTON);
-    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 });
+    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
     console.log('✓ Formulario enviado');
 
     // Verificar login exitoso
@@ -239,56 +216,135 @@ app.post('/api/sync', authenticateToken, async (req, res) => {
     // Espera adicional para contenido dinámico
     await new Promise((r) => setTimeout(r, 3000));
 
-    // Extraer datos del 3B Report usando extraction service (FASE 6)
+    // Extraer datos del 3B Report
     console.log('→ Extrayendo datos del 3B Report...');
+    const raw3BData = await page.evaluate((sel) => {
+      const data = {};
 
-    // Usar ExtractionService para extraer TODAS las secciones disponibles
-    // Incluye: scores, personalInfo, summary, accountHistory (34 cuentas), publicRecords, inquiries
-    const raw3BData = await extractionService.extractAll3BReport(page, {
-      sections: ['scores', 'personalInfo', 'summary', 'accountHistory', 'publicRecords', 'inquiries'],
-      accountHistory: {
-        // Sin límite = extraer todas las cuentas disponibles
-      }
-    });
+      const getText = (selector) => {
+        const el = document.querySelector(selector);
+        return el ? el.textContent.trim() : null;
+      };
 
-    console.log('✓ Datos extraídos con extraction-service');
+      // Credit Scores 3B
+      data.scores = {
+        transunion: getText(sel.TRANSUNION_SCORE_3B),
+        experian: getText(sel.EXPERIAN_SCORE_3B),
+        equifax: getText(sel.EQUIFAX_SCORE_3B),
+      };
 
-    // Construir reporte final usando report builder (FASE 6)
-    console.log('→ Construyendo reporte final...');
-    const creditData = reportBuilder.buildFullReport(raw3BData, {
-      includeDashboard: false
-    });
+      // Personal Information - Extracción programática
+      const extractGridData = (sectionIndex, gridIndex, bureauIndex) => {
+        const sections = document.querySelectorAll('section.mt-5');
+        if (sections.length <= sectionIndex) return null;
 
-    console.log('✓ Reporte construido exitosamente');
+        const grids = sections[sectionIndex].querySelectorAll('div.d-grid.grid-cols-4');
+        if (grids.length <= gridIndex) return null;
+
+        const grid = grids[gridIndex];
+        const bureauColumns = grid.querySelectorAll('div.d-contents');
+
+        if (bureauColumns.length <= bureauIndex) return null;
+
+        const cells = bureauColumns[bureauIndex].querySelectorAll('p.grid-cell');
+        return Array.from(cells)
+          .slice(1)
+          .map((cell) => cell.textContent.trim());
+      };
+
+      const tuPersonal = extractGridData(0, 0, 1);
+      const expPersonal = extractGridData(0, 0, 2);
+      const eqfPersonal = extractGridData(0, 0, 3);
+
+      data.personalInfo = {
+        transunion: {
+          reportDate: tuPersonal?.[0] || null,
+          name: tuPersonal?.[1] || null,
+          dob: tuPersonal?.[2] || null,
+          currentAddress: tuPersonal?.[3] || null,
+          previousAddress: tuPersonal?.[4] || null,
+          employer: tuPersonal?.[5] || null,
+        },
+        experian: {
+          reportDate: expPersonal?.[0] || null,
+          name: expPersonal?.[1] || null,
+          dob: expPersonal?.[2] || null,
+          currentAddress: expPersonal?.[3] || null,
+          previousAddress: expPersonal?.[4] || null,
+          employer: expPersonal?.[5] || null,
+        },
+        equifax: {
+          reportDate: eqfPersonal?.[0] || null,
+          name: eqfPersonal?.[1] || null,
+          dob: eqfPersonal?.[2] || null,
+          currentAddress: eqfPersonal?.[3] || null,
+          previousAddress: eqfPersonal?.[4] || null,
+          employer: eqfPersonal?.[5] || null,
+        },
+      };
+
+      // Summary
+      const tuSummary = extractGridData(1, 0, 1);
+      const expSummary = extractGridData(1, 0, 2);
+      const eqfSummary = extractGridData(1, 0, 3);
+
+      data.summary = {
+        transunion: {
+          totalAccounts: tuSummary?.[0] || null,
+          openAccounts: tuSummary?.[1] || null,
+          closedAccounts: tuSummary?.[2] || null,
+          delinquent: tuSummary?.[3] || null,
+          derogatory: tuSummary?.[4] || null,
+          balances: tuSummary?.[5] || null,
+          payments: tuSummary?.[6] || null,
+          publicRecords: tuSummary?.[7] || null,
+          inquiries: tuSummary?.[8] || null,
+        },
+        experian: {
+          totalAccounts: expSummary?.[0] || null,
+          openAccounts: expSummary?.[1] || null,
+          closedAccounts: expSummary?.[2] || null,
+          delinquent: expSummary?.[3] || null,
+          derogatory: expSummary?.[4] || null,
+          balances: expSummary?.[5] || null,
+          payments: expSummary?.[6] || null,
+          publicRecords: expSummary?.[7] || null,
+          inquiries: expSummary?.[8] || null,
+        },
+        equifax: {
+          totalAccounts: eqfSummary?.[0] || null,
+          openAccounts: eqfSummary?.[1] || null,
+          closedAccounts: eqfSummary?.[2] || null,
+          delinquent: eqfSummary?.[3] || null,
+          derogatory: eqfSummary?.[4] || null,
+          balances: eqfSummary?.[5] || null,
+          payments: eqfSummary?.[6] || null,
+          publicRecords: eqfSummary?.[7] || null,
+          inquiries: eqfSummary?.[8] || null,
+        },
+      };
+
+      return data;
+    }, selectors);
+
+    console.log('✓ Datos extraídos del 3B Report');
+
+    // Parsear datos del 3B Report
+    console.log('→ Parseando datos del 3B Report...');
+
+    const scores3B = parse3BScores(raw3BData.scores);
+    const personalInfo3B = parse3BPersonalInfo(raw3BData.personalInfo);
+    const summary3B = parse3BSummary(raw3BData.summary);
+
+    const report3BData = {
+      scores: scores3B,
+      personalInfo: personalInfo3B,
+      summary: summary3B,
+    };
+
+    const creditData = buildFullCreditReport({ credit_score_info: null }, report3BData);
 
     console.log('✓ Datos parseados');
-
-    // Save report to MongoDB
-    console.log('→ Saving report to MongoDB...');
-    try {
-      const creditReport = new CreditReport({
-        userId: req.user.id,
-        reportData: creditData,
-        scrapingStatus: 'completed',
-        scrapingDuration: null, // Could calculate from start time
-        metadata: {
-          scrapedSections: ['scores', 'personalInfo', 'summary', 'accountHistory', 'publicRecords', 'inquiries'],
-        },
-      });
-
-      await creditReport.save();
-
-      // Update user's lastReportId
-      await User.findByIdAndUpdate(req.user.id, {
-        lastReportId: creditReport._id,
-      });
-
-      console.log(`✓ Report saved to MongoDB (ID: ${creditReport._id})`);
-    } catch (dbError) {
-      console.error('⚠️  Warning: Failed to save report to MongoDB:', dbError.message);
-      // Continue even if DB save fails
-    }
-
     console.log('========================================');
     console.log('  Scraping completado exitosamente');
     console.log('========================================\n');
@@ -387,15 +443,6 @@ async function findAvailablePort(startPort, maxAttempts = 10) {
 
 // Iniciar servidor con manejo inteligente de puertos
 async function startServer() {
-  // Connect to MongoDB first
-  try {
-    await connectDB();
-  } catch (error) {
-    console.error('\n❌ ERROR: Failed to connect to MongoDB');
-    console.error(error.message);
-    process.exit(1);
-  }
-
   const requestedPort = PORT;
 
   // Intentar encontrar un puerto disponible

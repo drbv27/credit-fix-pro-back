@@ -22,5 +22,37 @@
     "smartcreditEmail": "",
     "smartcreditPassword": "",
     "createdAt": "2026-01-05T19:39:58.628Z"
+  },
+  {
+    "id": "1767649412578",
+    "email": "temp_1767649412470@temp.com",
+    "password": "$2b$10$RgCLjEir0Rb/g90ePvYKgOQmMt7RPzOhdU1eCbS7vtJoj1Dhef1U.",
+    "smartcreditEmail": "",
+    "smartcreditPassword": "",
+    "createdAt": "2026-01-05T21:43:32.578Z"
+  },
+  {
+    "id": "1767993806634",
+    "email": "temp_1767993806512@temp.com",
+    "password": "$2b$10$OHvybr/TpmCyQO.2vfX1e.wID/lf4McaKuQYMuZcK.Lck5mho4XkC",
+    "smartcreditEmail": "",
+    "smartcreditPassword": "",
+    "createdAt": "2026-01-09T21:23:26.634Z"
+  },
+  {
+    "id": "1767995607591",
+    "email": "temp_1767995607499@temp.com",
+    "password": "$2b$10$n/CDGfmu0Sist2DBcsMvsO1xZzAWX3fQwK7KKDvGipK9FTwu1ec0K",
+    "smartcreditEmail": "",
+    "smartcreditPassword": "",
+    "createdAt": "2026-01-09T21:53:27.591Z"
+  },
+  {
+    "id": "1767996171919",
+    "email": "temp_1767996171796@temp.com",
+    "password": "$2b$10$Qj8Js4rZE8o3p5qgttdYounLJCJ3HpdCPRPnvusIHIAgGFRk4cz8C",
+    "smartcreditEmail": "",
+    "smartcreditPassword": "",
+    "createdAt": "2026-01-09T22:02:51.919Z"
   }
 ]

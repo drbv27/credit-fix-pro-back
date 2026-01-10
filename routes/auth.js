@@ -1,209 +1,197 @@
 /**
- * Authentication Routes
+ * Authentication Routes with MongoDB
  * Rutas para login y registro de usuarios
  */
 
 const express = require('express');
-const bcrypt = require('bcryptjs');
-const fs = require('fs').promises;
-const path = require('path');
-const { generateToken } = require('../middleware/auth');
+const authService = require('../services/auth-service');
+const User = require('../models/User');
+const CreditReport = require('../models/CreditReport');
+const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
-const USERS_FILE = path.join(__dirname, '../config/users.json');
-
-/**
- * Lee usuarios del archivo JSON
- */
-async function readUsers() {
-  try {
-    const data = await fs.readFile(USERS_FILE, 'utf8');
-    return JSON.parse(data);
-  } catch (error) {
-    return [];
-  }
-}
-
-/**
- * Escribe usuarios al archivo JSON
- */
-async function writeUsers(users) {
-  await fs.writeFile(USERS_FILE, JSON.stringify(users, null, 2));
-}
 
 /**
  * POST /api/auth/register
- * Registra un nuevo usuario
+ * Register a new user with MongoDB
  */
 router.post('/register', async (req, res) => {
   try {
     const { email, password, smartcreditEmail, smartcreditPassword } = req.body;
 
-    // Validación
-    if (!email || !password) {
+    // Validation
+    if (!email || !password || !smartcreditEmail || !smartcreditPassword) {
       return res.status(400).json({
-        error: 'Datos incompletos',
-        message: 'Email y contraseña son requeridos'
+        error: 'Missing required fields',
+        message: 'Email, password, and SmartCredit credentials are required'
       });
     }
 
     if (password.length < 6) {
       return res.status(400).json({
-        error: 'Contraseña débil',
-        message: 'La contraseña debe tener al menos 6 caracteres'
+        error: 'Weak password',
+        message: 'Password must be at least 6 characters long'
       });
     }
 
-    // Verificar si el usuario ya existe
-    const users = await readUsers();
-    const existingUser = users.find(u => u.email === email);
-
-    if (existingUser) {
-      return res.status(409).json({
-        error: 'Usuario existente',
-        message: 'Ya existe un usuario con este email'
-      });
-    }
-
-    // Hash de la contraseña
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Crear nuevo usuario
-    const newUser = {
-      id: Date.now().toString(),
+    // Register user using auth service
+    const result = await authService.register({
       email,
-      password: hashedPassword,
-      smartcreditEmail: smartcreditEmail || '',
-      smartcreditPassword: smartcreditPassword || '',
-      createdAt: new Date().toISOString(),
-    };
-
-    users.push(newUser);
-    await writeUsers(users);
-
-    // Generar token
-    const token = generateToken(newUser);
+      password,
+      smartcreditEmail,
+      smartcreditPassword,
+    });
 
     res.status(201).json({
-      message: 'Usuario registrado exitosamente',
-      token,
-      user: {
-        id: newUser.id,
-        email: newUser.email,
-        hasSmartcreditCredentials: !!(smartcreditEmail && smartcreditPassword),
-      },
+      message: 'User registered successfully',
+      token: result.token,
+      user: result.user,
     });
   } catch (error) {
-    console.error('Error en registro:', error);
+    console.error('Registration error:', error);
+
+    if (error.message.includes('already exists')) {
+      return res.status(409).json({
+        error: 'User already exists',
+        message: error.message
+      });
+    }
+
     res.status(500).json({
-      error: 'Error del servidor',
-      message: 'Error al registrar usuario'
+      error: 'Server error',
+      message: 'Error registering user'
     });
   }
 });
 
 /**
  * POST /api/auth/login
- * Autentica un usuario
+ * Authenticate user with MongoDB
  */
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Validación
+    // Validation
     if (!email || !password) {
       return res.status(400).json({
-        error: 'Datos incompletos',
-        message: 'Email y contraseña son requeridos'
+        error: 'Missing required fields',
+        message: 'Email and password are required'
       });
     }
 
-    // Buscar usuario
-    const users = await readUsers();
-    const user = users.find(u => u.email === email);
+    // Login using auth service
+    const result = await authService.login({ email, password });
 
-    if (!user) {
-      return res.status(401).json({
-        error: 'Credenciales inválidas',
-        message: 'Email o contraseña incorrectos'
-      });
+    // Get user's last report if exists
+    const user = await User.findById(result.user.id).populate('lastReportId');
+    let lastReport = null;
+
+    if (user.lastReportId) {
+      lastReport = {
+        id: user.lastReportId._id,
+        scrapedAt: user.lastReportId.createdAt,
+        status: user.lastReportId.scrapingStatus,
+      };
     }
-
-    // Verificar contraseña
-    const isValidPassword = await bcrypt.compare(password, user.password);
-
-    if (!isValidPassword) {
-      return res.status(401).json({
-        error: 'Credenciales inválidas',
-        message: 'Email o contraseña incorrectos'
-      });
-    }
-
-    // Generar token
-    const token = generateToken(user);
 
     res.json({
-      message: 'Login exitoso',
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        hasSmartcreditCredentials: !!(user.smartcreditEmail && user.smartcreditPassword),
-      },
+      message: 'Login successful',
+      token: result.token,
+      user: result.user,
+      lastReport,
     });
   } catch (error) {
-    console.error('Error en login:', error);
+    console.error('Login error:', error);
+
+    if (error.message.includes('Invalid') || error.message.includes('deactivated')) {
+      return res.status(401).json({
+        error: 'Invalid credentials',
+        message: error.message
+      });
+    }
+
     res.status(500).json({
-      error: 'Error del servidor',
-      message: 'Error al autenticar usuario'
+      error: 'Server error',
+      message: 'Error authenticating user'
     });
   }
 });
 
 /**
  * POST /api/auth/update-credentials
- * Actualiza las credenciales de SmartCredit del usuario
+ * Update SmartCredit credentials - Requires authentication
  */
-router.post('/update-credentials', async (req, res) => {
+router.post('/update-credentials', authenticateToken, async (req, res) => {
   try {
-    const { email, smartcreditEmail, smartcreditPassword } = req.body;
+    const { smartcreditEmail, smartcreditPassword } = req.body;
 
-    if (!email || !smartcreditEmail || !smartcreditPassword) {
+    if (!smartcreditEmail || !smartcreditPassword) {
       return res.status(400).json({
-        error: 'Datos incompletos',
-        message: 'Todos los campos son requeridos'
+        error: 'Missing required fields',
+        message: 'SmartCredit email and password are required'
       });
     }
 
-    const users = await readUsers();
-    const userIndex = users.findIndex(u => u.email === email);
-
-    if (userIndex === -1) {
-      return res.status(404).json({
-        error: 'Usuario no encontrado',
-        message: 'No se encontró el usuario'
-      });
-    }
-
-    users[userIndex].smartcreditEmail = smartcreditEmail;
-    users[userIndex].smartcreditPassword = smartcreditPassword;
-    users[userIndex].updatedAt = new Date().toISOString();
-
-    await writeUsers(users);
+    // Update using auth service
+    await authService.updateSmartcreditCredentials(req.user.id, {
+      email: smartcreditEmail,
+      password: smartcreditPassword,
+    });
 
     res.json({
-      message: 'Credenciales actualizadas exitosamente',
+      message: 'SmartCredit credentials updated successfully',
       user: {
-        id: users[userIndex].id,
-        email: users[userIndex].email,
+        id: req.user.id,
+        email: req.user.email,
         hasSmartcreditCredentials: true,
       },
     });
   } catch (error) {
-    console.error('Error actualizando credenciales:', error);
+    console.error('Error updating credentials:', error);
+
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        error: 'User not found',
+        message: error.message
+      });
+    }
+
     res.status(500).json({
-      error: 'Error del servidor',
-      message: 'Error al actualizar credenciales'
+      error: 'Server error',
+      message: 'Error updating credentials'
+    });
+  }
+});
+
+/**
+ * GET /api/auth/me
+ * Get current user info - Requires authentication
+ */
+router.get('/me', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({
+        error: 'User not found',
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      user: {
+        id: user._id,
+        email: user.email,
+        hasSmartcreditCredentials: !!user.smartcreditCredentials?.email,
+        createdAt: user.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error('Error getting user:', error);
+    res.status(500).json({
+      error: 'Server error',
+      message: 'Error getting user information'
     });
   }
 });
