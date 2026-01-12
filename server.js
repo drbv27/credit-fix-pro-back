@@ -61,6 +61,45 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'smartcredit-scraper', timestamp: new Date().toISOString() });
 });
 
+// Error classification function for scraping errors
+function classifyScrapingError(error) {
+  const errorMsg = error.message.toLowerCase();
+
+  // Login/Auth errors
+  if (errorMsg.includes('login falló') || errorMsg.includes('no se redirigió al dashboard')) {
+    return {
+      code: 'AUTH_FAILED',
+      userMessage: 'Invalid SmartCredit credentials. Please update them in Settings.',
+      technicalMessage: error.message
+    };
+  }
+
+  // SmartCredit site errors
+  if (errorMsg.includes('no se encontró') || errorMsg.includes('not found')) {
+    return {
+      code: 'SITE_UNAVAILABLE',
+      userMessage: 'SmartCredit is temporarily unavailable. Please try again later.',
+      technicalMessage: error.message
+    };
+  }
+
+  // Network errors
+  if (errorMsg.includes('timeout') || errorMsg.includes('econnrefused') || errorMsg.includes('network')) {
+    return {
+      code: 'NETWORK_ERROR',
+      userMessage: 'Network error. Please check your internet connection and try again.',
+      technicalMessage: error.message
+    };
+  }
+
+  // Generic error
+  return {
+    code: 'UNKNOWN_ERROR',
+    userMessage: 'An unexpected error occurred while syncing your credit report. Please try again.',
+    technicalMessage: error.message
+  };
+}
+
 // Main scraping endpoint - Ahora requiere autenticación
 app.post('/api/sync', authenticateToken, async (req, res) => {
   let browser = null;
@@ -316,10 +355,15 @@ app.post('/api/sync', authenticateToken, async (req, res) => {
       }
     }
 
+    // Classify error and send user-friendly response
+    const errorInfo = classifyScrapingError(error);
+
     // Enviar respuesta de error
     res.status(500).json({
       success: false,
-      error: error.message,
+      error: errorInfo.code,
+      message: errorInfo.userMessage,
+      technicalDetails: errorInfo.technicalMessage  // For debugging
     });
   }
 });
