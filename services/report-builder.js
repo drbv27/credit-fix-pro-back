@@ -61,8 +61,10 @@ class ReportBuilder {
       // Public Records (NUEVO - Fase 3)
       public_records: rawData.publicRecords || null,
 
-      // Inquiries (NUEVO - Fase 3)
-      inquiries: rawData.inquiries || null,
+      // Inquiries (ACTUALIZADO - Con detalles)
+      inquiries: rawData.inquiries
+        ? this.parseInquiries(rawData.inquiries)
+        : null,
 
       // Creditor Contacts (NUEVO - Fase 4)
       creditor_contacts: rawData.creditorContacts || null,
@@ -160,6 +162,35 @@ class ReportBuilder {
   }
 
   /**
+   * Parsea los datos de Inquiries
+   * Mantiene el conteo y agrega los detalles parseados
+   *
+   * @param {object} rawInquiries - { count: {...}, details: [...] }
+   * @returns {object} Inquiries parseados
+   */
+  parseInquiries(rawInquiries) {
+    if (!rawInquiries) {
+      return null;
+    }
+
+    // Si viene en formato antiguo (solo conteo), mantener compatibilidad
+    if (!rawInquiries.details && !rawInquiries.count) {
+      return rawInquiries;
+    }
+
+    return {
+      count: rawInquiries.count || null,
+      details: Array.isArray(rawInquiries.details)
+        ? rawInquiries.details.map(inquiry => ({
+            creditor_name: this.cleanText(inquiry.creditor_name),
+            inquiry_date: this.parseDate(inquiry.inquiry_date),
+            credit_bureau: this.cleanText(inquiry.credit_bureau)
+          }))
+        : []
+    };
+  }
+
+  /**
    * Limpia texto eliminando espacios extra y caracteres no deseados
    * (Reutiliza lógica del parser existente)
    *
@@ -207,7 +238,7 @@ class ReportBuilder {
     console.log(`  Summary: ${report.summary ? '✓' : '✗'}`);
     console.log(`  Account History: ${report.account_history ? `✓ (${report.account_history.length} cuentas)` : '✗'}`);
     console.log(`  Public Records: ${report.public_records ? '✓' : '✗'}`);
-    console.log(`  Inquiries: ${report.inquiries ? '✓' : '✗'}`);
+    console.log(`  Inquiries: ${report.inquiries ? `✓ (${report.inquiries.details?.length || 0} detallados)` : '✗'}`);
     console.log(`  Creditor Contacts: ${report.creditor_contacts ? `✓ (${report.creditor_contacts.length} contactos)` : '✗'}`);
 
     if (report.account_history_pagination) {

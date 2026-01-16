@@ -15,6 +15,7 @@ const extractorConfig = require('../config/extractors');
 const { extractGridData } = require('../utils/extractors/grid-extractor');
 const { extractAccountHistory, extractAccountHistoryPaginated } = require('../utils/extractors/account-extractor');
 const { extractCreditorContacts } = require('../utils/extractors/contact-extractor');
+const { extractInquiriesDetails } = require('../utils/extractors/inquiry-extractor');
 
 /**
  * Clase principal del servicio de extracción
@@ -295,14 +296,15 @@ class ExtractionService {
   }
 
   /**
-   * Extrae Inquiries (FASE 4)
-   * Retorna el conteo de Inquiries (2 años) por buró desde la sección Summary
+   * Extrae Inquiries (ACTUALIZADO)
+   * Retorna tanto el conteo por buró como los detalles de cada inquiry individual
    *
    * @param {object} page - Instancia de Puppeteer page
-   * @returns {Promise<object>} Datos de inquiries por buró
+   * @returns {Promise<object>} { count: { transunion, experian, equifax }, details: [...] }
    */
   async extractInquiries(page) {
     try {
+      // Extraer el conteo de inquiries desde Summary
       const inquiriesCount = await page.evaluate(() => {
         // Buscar en la sección Summary, fila "Inquiries (2 years):"
         const sections = document.querySelectorAll('section.mt-5');
@@ -339,11 +341,24 @@ class ExtractionService {
         };
       });
 
-      return inquiriesCount;
+      // Extraer los detalles de cada inquiry individual
+      const inquiriesDetails = await extractInquiriesDetails(
+        page,
+        this.extractorConfig.inquiries
+      );
+
+      // Retornar estructura combinada
+      return {
+        count: inquiriesCount,
+        details: inquiriesDetails || []
+      };
 
     } catch (error) {
       console.error('Error extrayendo Inquiries:', error.message);
-      return null;
+      return {
+        count: null,
+        details: []
+      };
     }
   }
 

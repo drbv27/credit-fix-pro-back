@@ -138,19 +138,16 @@ module.exports = {
   },
 
   // ========================================
-  // INQUIRIES (NUEVO)
+  // INQUIRIES (ACTUALIZADO - Selectores reales)
   // ========================================
   inquiries: {
     type: 'inquiry-list',
-    sectionSelector: 'section:has(h5:contains("Inquiries"))',
-    inquiryContainerSelector: 'div.inquiry-item',  // ajustar según HTML real
-
-    fields: [
-      { name: 'creditor_name', selector: '.creditor-name', transform: 'cleanText' },
-      { name: 'inquiry_date', selector: '.inquiry-date', transform: 'parseDate' },
-      { name: 'inquiry_type', selector: '.inquiry-type', transform: 'cleanText' },  // "Hard" o "Soft"
-      // NOTA: Ajustar selectores cuando se tenga acceso al HTML real de Inquiries
-    ]
+    sectionSelector: 'section.mt-5',
+    sectionHeading: 'Inquiries',
+    // Header row (para ignorar): div.d-grid.grid-cols-3.fs-12.bg-gray-100
+    inquiryRowSelector: 'div.d-grid.grid-cols-3.border-color-gray-100.border-b',
+    cellSelector: 'p.grid-cell',
+    fields: ['creditor_name', 'inquiry_date', 'credit_bureau']
   },
 
   // ========================================
